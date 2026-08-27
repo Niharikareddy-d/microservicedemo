@@ -1,0 +1,65 @@
+services:
+
+  gateway:
+    name: gateway-service
+    namespace: gateway
+    repository: terraform-platform-test-gateway-service
+    tag: latest
+    port: 8080
+    replicas: 1
+
+  auth:
+    name: auth-service
+    namespace: auth
+    repository: terraform-platform-test-auth-service
+    tag: latest
+    port: 8081
+    replicas: 1
+
+  user:
+    name: user-service
+    namespace: user
+    repository: terraform-platform-test-user-service
+    tag: latest
+    port: 8082
+    replicas: 1
+
+  admin:
+    name: admin-service
+    namespace: admin
+    repository: terraform-platform-test-admin-service
+    tag: latest
+    port: 8082
+    replicas: 1
+
+  employee:
+    name: employee-service
+    namespace: employee
+    repository: terraform-platform-test-employee-service
+    tag: latest
+    port: 8083
+    replicas: 1
+
+  customer:
+    name: customer-service
+    namespace: customer
+    repository: terraform-platform-test-customer-service
+    tag: latest
+    port: 8084
+    replicas: 1
+
+  hr:
+    name: hr-service
+    namespace: hr
+    repository: terraform-platform-test-hr-service
+    tag: latest
+    port: 8085
+    replicas: 1
+
+  task:
+    name: task-service
+    namespace: task
+    repository: terraform-platform-test-task-service
+    tag: latest
+    port: 8089
+    replicas: 1

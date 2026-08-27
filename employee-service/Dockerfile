@@ -18,6 +18,9 @@ COPY task-service/pom.xml task-service/
 COPY employee-service/pom.xml employee-service/
 COPY hr-service/pom.xml hr-service/
 COPY notification-service/pom.xml notification-service/
+COPY admin-service/pom.xml admin-service/
+COPY employee-service/pom.xml employee-service/
+COPY hr-service/pom.xml hr-service/
 COPY file-service/pom.xml file-service/
 COPY report-service/pom.xml report-service/
 COPY audit-service/pom.xml audit-service/

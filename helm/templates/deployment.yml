@@ -1,0 +1,36 @@
+{{- range $name, $service := .Values.services }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $service.name }}
+  namespace: {{ $service.namespace }}
+spec:
+  replicas: {{ $service.replicas }}
+  selector:
+    matchLabels:
+      app: {{ $service.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $service.name }}
+    spec:
+      containers:
+        - name: {{ $service.name }}
+          image: 058233700821.dkr.ecr.ap-south-1.amazonaws.com/{{ $service.repository }}:{{ $service.tag }}
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: {{ $service.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: microservices-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+{{- end }}
