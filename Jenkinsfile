@@ -33,26 +33,30 @@ pipeline {
                         changedFiles = sh(
                             script: 'git diff --name-only HEAD~1 HEAD',
                             returnStdout: true
-                        ).trim().split('\n') as List
+                        ).trim()
+                            .split('\n')
+                            .findAll { it?.trim() }
 
                     } else {
 
                         changedFiles = sh(
                             script: 'git ls-files',
                             returnStdout: true
-                        ).trim().split('\n') as List
+                        ).trim()
+                            .split('\n')
+                            .findAll { it?.trim() }
                     }
 
-                    echo "Changed files:"
-                    changedFiles.each {
-                        echo " - ${it}"
-                    }
-
+                    /*
+                     * Services that currently contain Dockerfiles
+                     * and are deployable microservices.
+                     */
                     def deployableServices = sh(
                         script: '''
                             find . -mindepth 2 -maxdepth 2 \
-                              -name Dockerfile \
-                              -printf '%h\\n' |
+                                -type f \
+                                -name Dockerfile \
+                                -printf '%h\\n' |
                             sed 's#^./##' |
                             sort
                         ''',
@@ -60,7 +64,9 @@ pipeline {
                     ).trim()
 
                     def services = deployableServices ?
-                        deployableServices.split('\n') as List :
+                        deployableServices
+                            .split('\n')
+                            .findAll { it?.trim() } :
                         []
 
                     def affectedServices = [] as Set
@@ -69,43 +75,68 @@ pipeline {
 
                         def topLevel = file.tokenize('/')[0]
 
+                        /*
+                         * Direct microservice change.
+                         */
                         if (services.contains(topLevel)) {
                             affectedServices.add(topLevel)
                         }
 
+                        /*
+                         * Root Maven POM change.
+                         */
                         if (file == 'pom.xml') {
                             affectedServices.addAll(services)
                         }
 
+                        /*
+                         * common-library change.
+                         *
+                         * Every service that declares common-library
+                         * as a dependency is affected.
+                         */
                         if (file.startsWith('common-library/')) {
 
                             services.each { service ->
 
-                                def usesCommonLibrary = sh(
-                                    script: """
-                                        grep -q '<artifactId>common-library</artifactId>' '${service}/pom.xml'
-                                    """,
-                                    returnStatus: true
-                                ) == 0
+                                def pomFile = "${service}/pom.xml"
 
-                                if (usesCommonLibrary) {
-                                    affectedServices.add(service)
+                                if (fileExists(pomFile)) {
+
+                                    def usesCommonLibrary = sh(
+                                        script: """
+                                            grep -q \
+                                              '<artifactId>common-library</artifactId>' \
+                                              '${pomFile}'
+                                        """,
+                                        returnStatus: true
+                                    ) == 0
+
+                                    if (usesCommonLibrary) {
+                                        affectedServices.add(service)
+                                    }
                                 }
                             }
                         }
                     }
 
-                    if (affectedServices.isEmpty()) {
-                        echo 'No deployable microservice changes detected.'
-                        env.AFFECTED_SERVICES = ''
-                    } else {
-                        env.AFFECTED_SERVICES =
-                            affectedServices.toList().sort().join(',')
+                    env.AFFECTED_SERVICES =
+                        affectedServices.toList().sort().join(',')
 
-                        echo "Affected services:"
-                        affectedServices.toList().sort().each {
-                            echo " - ${it}"
-                        }
+                    if (affectedServices.isEmpty()) {
+
+                        echo 'No microservice changes detected.'
+
+                    } else {
+
+                        echo 'Affected microservices:'
+
+                        affectedServices
+                            .toList()
+                            .sort()
+                            .each { service ->
+                                echo " - ${service}"
+                            }
                     }
                 }
             }
@@ -114,7 +145,7 @@ pipeline {
         stage('Maven Build & Unit Tests') {
             when {
                 expression {
-                    return env.AFFECTED_SERVICES?.trim()
+                    env.AFFECTED_SERVICES?.trim()
                 }
             }
 
@@ -125,9 +156,9 @@ pipeline {
 
                     sh """
                         mvn -B -ntp \
-                          -pl ${modules} \
-                          -am \
-                          clean test
+                            -pl ${modules} \
+                            -am \
+                            clean test
                     """
                 }
             }
@@ -135,19 +166,20 @@ pipeline {
     }
 
     post {
-        success {
-            echo 'Application CI completed successfully.'
-        }
-
-        failure {
-            echo 'Application CI failed.'
-        }
 
         always {
             junit(
                 testResults: '**/target/surefire-reports/*.xml',
                 allowEmptyResults: true
             )
+        }
+
+        success {
+            echo 'Application CI completed successfully.'
+        }
+
+        failure {
+            echo 'Application CI failed.'
         }
     }
 }
