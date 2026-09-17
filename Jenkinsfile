@@ -20,5 +20,17 @@ pipeline {
             }
         }
 
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('sonar-server') {
+                    sh '''
+                        mvn sonar:sonar \
+                          -Dsonar.projectKey=microservicedemo \
+                          -Dsonar.projectName=microservicedemo
+                    '''
+                }
+            }
+        }
+
     }
 }
