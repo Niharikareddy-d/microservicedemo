@@ -22,27 +22,20 @@ pipeline {
 
     environment {
 
-        // Application
         APPLICATION_NAME = 'microservicedemo'
 
-        // SonarQube
         SONAR_PROJECT_KEY  = 'microservicedemo'
         SONAR_PROJECT_NAME = 'microservicedemo'
 
-        // Nexus
-        MAVEN_SETTINGS = 'maven-setting'
-
-        // AWS
         AWS_REGION = 'us-east-1'
 
-        // ECR
         ECR_REGISTRY = '058233700821.dkr.ecr.us-east-1.amazonaws.com'
 
-        // EKS
         EKS_CLUSTER_NAME = 'enterprise-test-eks'
 
-        // Kubernetes
         KUBE_CONFIG = '/var/lib/jenkins/.kube/config'
+
+        IMAGE_TAG = "${BUILD_NUMBER}"
     }
 
     stages {
@@ -113,27 +106,6 @@ pipeline {
 
 
         // ============================================================
-        // ------ NEXUS MAVEN ARTIFACT PUBLISH
-        // ============================================================
-
-        stage('Nexus Maven Artifact Publish') {
-            steps {
-
-                withMaven(
-                    globalMavenSettingsConfig: "${MAVEN_SETTINGS}"
-                ) {
-
-                    sh '''
-                        set -e
-
-                        mvn deploy -DskipTests
-                    '''
-                }
-            }
-        }
-
-
-        // ============================================================
         // ------ DOCKER IMAGE BUILD
         // ============================================================
 
@@ -142,14 +114,32 @@ pipeline {
 
                 script {
 
-                    echo "Building Docker images for ${APPLICATION_NAME}"
-
                     /*
-                     * Docker image build implementation
-                     * will be added after confirming the
-                     * actual microservice Dockerfiles and
-                     * image naming convention.
+                     * Docker image definitions will be maintained
+                     * centrally here.
+                     *
+                     * Example structure:
+                     *
+                     * [
+                     *     [name: 'auth',     path: 'auth-service'],
+                     *     [name: 'gateway',  path: 'gateway-service'],
+                     *     [name: 'user',     path: 'user-service'],
+                     *     ...
+                     * ]
+                     *
+                     * The exact Nexus/ECR mapping will be added
+                     * after confirming the final image design.
                      */
+
+                    echo "Building application Docker images"
+
+                    sh '''
+                        set -e
+
+                        docker version
+
+                        find . -maxdepth 2 -name Dockerfile -print
+                    '''
                 }
             }
         }
@@ -164,11 +154,15 @@ pipeline {
 
                 script {
 
-                    echo "Running Trivy security scan"
+                    echo "Running Trivy security scan against generated images"
 
                     /*
-                     * Trivy implementation will scan
-                     * each generated application image.
+                     * Each generated image will be scanned before
+                     * it is allowed to enter Nexus or ECR.
+                     *
+                     * Critical/High vulnerability policy will be
+                     * applied here after confirming the project's
+                     * required security threshold.
                      */
                 }
             }
@@ -184,12 +178,15 @@ pipeline {
 
                 script {
 
-                    echo "Publishing Docker images to Nexus"
+                    echo "Publishing designated Docker images to Nexus"
 
                     /*
-                     * Nexus Docker repository implementation
-                     * will be added using the actual Nexus
-                     * Docker repository configuration.
+                     * Four designated images will be pushed to
+                     * the Nexus Docker registry.
+                     *
+                     * Nexus repository/registry endpoint and
+                     * authentication will be wired here using
+                     * the actual Nexus configuration.
                      */
                 }
             }
@@ -205,11 +202,25 @@ pipeline {
 
                 script {
 
-                    echo "Publishing required Docker images to Amazon ECR"
+                    sh '''
+                        set -e
+
+                        aws ecr get-login-password \
+                            --region "${AWS_REGION}" \
+                        | docker login \
+                            --username AWS \
+                            --password-stdin "${ECR_REGISTRY}"
+                    '''
+
+                    echo "Publishing designated Docker images to Amazon ECR"
 
                     /*
-                     * ECR implementation will use the
-                     * Jenkins EC2 IAM role for authentication.
+                     * The ECR repositories are already provisioned.
+                     *
+                     * Jenkins authenticates through the EC2 IAM role.
+                     *
+                     * The exact image-to-ECR mapping will be
+                     * applied here.
                      */
                 }
             }
@@ -225,14 +236,15 @@ pipeline {
 
                 script {
 
-                    echo "Deploying application using Helm"
-
                     sh '''
                         set -e
 
-                        helm list \
-                          --all-namespaces \
-                          --kubeconfig "${KUBE_CONFIG}"
+                        helm lint ./helm/microservices
+
+                        helm upgrade \
+                            --install microservices \
+                            ./helm/microservices \
+                            --kubeconfig "${KUBE_CONFIG}"
                     '''
                 }
             }
@@ -250,9 +262,18 @@ pipeline {
                     set -e
 
                     kubectl \
-                      --kubeconfig "${KUBE_CONFIG}" \
-                      get pods \
-                      --all-namespaces
+                        --kubeconfig "${KUBE_CONFIG}" \
+                        get pods \
+                        --all-namespaces
+
+                    kubectl \
+                        --kubeconfig "${KUBE_CONFIG}" \
+                        get services \
+                        --all-namespaces
+
+                    helm list \
+                        --all-namespaces \
+                        --kubeconfig "${KUBE_CONFIG}"
                 '''
             }
         }
