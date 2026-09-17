@@ -7,14 +7,14 @@ pipeline {
         timestamps()
         disableConcurrentBuilds()
 
+        timeout(time: 60, unit: 'MINUTES')
+
         buildDiscarder(
             logRotator(
                 numToKeepStr: '20',
                 artifactNumToKeepStr: '10'
             )
         )
-
-        timeout(time: 60, unit: 'MINUTES')
     }
 
     tools {
@@ -24,97 +24,99 @@ pipeline {
 
     environment {
 
-        /*
-         * Application
-         */
+        /* ================================
+           Application
+           ================================ */
+
         APP_NAME = 'microservicedemo'
 
-        /*
-         * AWS
-         */
+        /* ================================
+           AWS
+           ================================ */
+
         AWS_REGION = 'us-east-1'
         AWS_ACCOUNT_ID = '058233700821'
 
-        /*
-         * ECR
-         */
-        ECR_REGISTRY = '058233700821.dkr.ecr.us-east-1.amazonaws.com'
+        ECR_REGISTRY =
+            '058233700821.dkr.ecr.us-east-1.amazonaws.com'
 
-        /*
-         * EKS
-         */
         EKS_CLUSTER = 'enterprise-test-eks'
-        KUBE_CONFIG = '/var/lib/jenkins/.kube/config'
 
-        /*
-         * SonarQube
-         */
-        SONAR_PROJECT_KEY  = 'microservicedemo'
+        /* ================================
+           SonarQube
+           ================================ */
+
+        SONAR_PROJECT_KEY = 'microservicedemo'
         SONAR_PROJECT_NAME = 'microservicedemo'
 
-        /*
-         * Image version
-         *
-         * Immutable Jenkins build tag.
-         */
+        /* ================================
+           Docker
+           ================================ */
+
         IMAGE_TAG = "${BUILD_NUMBER}"
 
+        /* ================================
+           Nexus
+           ================================ */
+
         /*
-         * Helm
+         * Nexus is used as Docker registry.
+         *
+         * Keep the actual Nexus Docker connector
+         * URL configured here after verifying it
+         * from the Nexus server.
          */
-        HELM_RELEASE = 'microservices'
-        HELM_CHART   = './helm'
+        NEXUS_REGISTRY = 'YOUR-NEXUS-DOCKER-REGISTRY'
+
+        NEXUS_NAMESPACE = 'microservicedemo'
     }
 
     stages {
 
-        // ============================================================
-        // STAGE 1 - SOURCE CHECKOUT
-        // ============================================================
+        /* =========================================================
+           STAGE 1
+           ========================================================= */
 
         stage('Source Checkout') {
 
             steps {
+
+                echo '=========================================='
+                echo 'Source Checkout'
+                echo '=========================================='
 
                 checkout scm
 
                 sh '''
                     set -e
 
-                    echo "=========================================="
-                    echo "Source Checkout"
-                    echo "=========================================="
+                    echo "Repository:"
+                    git remote get-url origin
 
                     echo "Branch:"
-                    git branch --show-current || true
+                    git branch --show-current
 
                     echo "Commit:"
                     git rev-parse HEAD
-
-                    echo "Application:"
-                    echo "${APP_NAME}"
                 '''
             }
         }
 
 
-        // ============================================================
-        // STAGE 2 - MAVEN BUILD & TEST
-        // ============================================================
+        /* =========================================================
+           STAGE 2
+           ========================================================= */
 
         stage('Maven Build & Test') {
 
             steps {
 
+                echo '=========================================='
+                echo 'Maven Build & Test'
+                echo '=========================================='
+
                 sh '''
                     set -e
-
-                    echo "=========================================="
-                    echo "Maven Build & Test"
-                    echo "=========================================="
-
-                    java -version
-                    mvn -version
 
                     mvn clean test
                 '''
@@ -122,22 +124,22 @@ pipeline {
         }
 
 
-        // ============================================================
-        // STAGE 3 - SONARQUBE ANALYSIS
-        // ============================================================
+        /* =========================================================
+           STAGE 3
+           ========================================================= */
 
         stage('SonarQube Code Analysis') {
 
             steps {
 
+                echo '=========================================='
+                echo 'SonarQube Code Analysis'
+                echo '=========================================='
+
                 withSonarQubeEnv('sonar-server') {
 
                     sh '''
                         set -e
-
-                        echo "=========================================="
-                        echo "SonarQube Code Analysis"
-                        echo "=========================================="
 
                         mvn \
                           org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
@@ -149,176 +151,126 @@ pipeline {
         }
 
 
-        // ============================================================
-        // STAGE 4 - SONARQUBE QUALITY GATE
-        // ============================================================
+        /* =========================================================
+           STAGE 4
+           ========================================================= */
 
         stage('SonarQube Quality Gate') {
 
             steps {
 
+                echo '=========================================='
+                echo 'SonarQube Quality Gate'
+                echo '=========================================='
+
                 timeout(time: 10, unit: 'MINUTES') {
 
-                    waitForQualityGate abortPipeline: true
+                    waitForQualityGate(
+                        abortPipeline: true
+                    )
                 }
             }
         }
 
 
-        // ============================================================
-        // STAGE 5 - DOCKER IMAGE BUILD
-        // ============================================================
+        /* =========================================================
+           STAGE 5
+           ========================================================= */
 
         stage('Docker Image Build') {
 
             steps {
 
+                echo '=========================================='
+                echo 'Docker Image Build'
+                echo '=========================================='
+
                 sh '''
                     set -e
 
+                    echo "Build Number: ${BUILD_NUMBER}"
+                    echo "Image Tag: ${IMAGE_TAG}"
+
+                    services="
+                    gateway
+                    auth
+                    user
+                    admin
+                    employee
+                    customer
+                    hr
+                    task
+                    "
+
+                    for service in $services
+                    do
+                        echo ""
+                        echo "=========================================="
+                        echo "Building ${service}"
+                        echo "=========================================="
+
+                        docker build \
+                          -t ${APP_NAME}-${service}:${IMAGE_TAG} \
+                          -f ${service}-service/Dockerfile .
+                    done
+
+                    echo ""
                     echo "=========================================="
-                    echo "Docker Image Build"
+                    echo "Built Images"
                     echo "=========================================="
 
-                    docker version
-
-                    echo ""
-                    echo "Building deployment services..."
-                    echo ""
-
-                    docker build \
-                      -t ${APP_NAME}-gateway:${IMAGE_TAG} \
-                      -f gateway-service/Dockerfile .
-
-                    docker build \
-                      -t ${APP_NAME}-auth:${IMAGE_TAG} \
-                      -f auth-service/Dockerfile .
-
-                    docker build \
-                      -t ${APP_NAME}-user:${IMAGE_TAG} \
-                      -f user-service/Dockerfile .
-
-                    docker build \
-                      -t ${APP_NAME}-admin:${IMAGE_TAG} \
-                      -f admin-service/Dockerfile .
-
-                    docker build \
-                      -t ${APP_NAME}-employee:${IMAGE_TAG} \
-                      -f employee-service/Dockerfile .
-
-                    docker build \
-                      -t ${APP_NAME}-customer:${IMAGE_TAG} \
-                      -f customer-service/Dockerfile .
-
-                    docker build \
-                      -t ${APP_NAME}-hr:${IMAGE_TAG} \
-                      -f hr-service/Dockerfile .
-
-                    docker build \
-                      -t ${APP_NAME}-task:${IMAGE_TAG} \
-                      -f task-service/Dockerfile .
-
-                    echo ""
-                    echo "Built images:"
                     docker images | grep "${APP_NAME}"
                 '''
             }
         }
 
 
-        // ============================================================
-        // STAGE 6 - TRIVY IMAGE SECURITY SCAN
-        // ============================================================
+        /* =========================================================
+           STAGE 6
+           ========================================================= */
 
         stage('Trivy Image Security Scan') {
 
             steps {
 
+                echo '=========================================='
+                echo 'Trivy Image Security Scan'
+                echo '=========================================='
+
                 sh '''
                     set -e
 
-                    echo "=========================================="
-                    echo "Trivy Image Security Scan"
-                    echo "=========================================="
-
                     trivy --version
 
+                    rm -rf trivy-reports
                     mkdir -p trivy-reports
 
-                    echo ""
-                    echo "Scanning gateway..."
-                    trivy image \
-                      --severity HIGH,CRITICAL \
-                      --exit-code 1 \
-                      --format table \
-                      -o trivy-reports/gateway-${IMAGE_TAG}.txt \
-                      ${APP_NAME}-gateway:${IMAGE_TAG}
+                    services="
+                    gateway
+                    auth
+                    user
+                    admin
+                    employee
+                    customer
+                    hr
+                    task
+                    "
 
-                    echo ""
-                    echo "Scanning auth..."
-                    trivy image \
-                      --severity HIGH,CRITICAL \
-                      --exit-code 1 \
-                      --format table \
-                      -o trivy-reports/auth-${IMAGE_TAG}.txt \
-                      ${APP_NAME}-auth:${IMAGE_TAG}
+                    for service in $services
+                    do
+                        IMAGE="${APP_NAME}-${service}:${IMAGE_TAG}"
 
-                    echo ""
-                    echo "Scanning user..."
-                    trivy image \
-                      --severity HIGH,CRITICAL \
-                      --exit-code 1 \
-                      --format table \
-                      -o trivy-reports/user-${IMAGE_TAG}.txt \
-                      ${APP_NAME}-user:${IMAGE_TAG}
+                        echo ""
+                        echo "=========================================="
+                        echo "Scanning ${IMAGE}"
+                        echo "=========================================="
 
-                    echo ""
-                    echo "Scanning admin..."
-                    trivy image \
-                      --severity HIGH,CRITICAL \
-                      --exit-code 1 \
-                      --format table \
-                      -o trivy-reports/admin-${IMAGE_TAG}.txt \
-                      ${APP_NAME}-admin:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Scanning employee..."
-                    trivy image \
-                      --severity HIGH,CRITICAL \
-                      --exit-code 1 \
-                      --format table \
-                      -o trivy-reports/employee-${IMAGE_TAG}.txt \
-                      ${APP_NAME}-employee:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Scanning customer..."
-                    trivy image \
-                      --severity HIGH,CRITICAL \
-                      --exit-code 1 \
-                      --format table \
-                      -o trivy-reports/customer-${IMAGE_TAG}.txt \
-                      ${APP_NAME}-customer:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Scanning hr..."
-                    trivy image \
-                      --severity HIGH,CRITICAL \
-                      --exit-code 1 \
-                      --format table \
-                      -o trivy-reports/hr-${IMAGE_TAG}.txt \
-                      ${APP_NAME}-hr:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Scanning task..."
-                    trivy image \
-                      --severity HIGH,CRITICAL \
-                      --exit-code 1 \
-                      --format table \
-                      -o trivy-reports/task-${IMAGE_TAG}.txt \
-                      ${APP_NAME}-task:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Trivy scan completed successfully."
+                        trivy image \
+                          --severity HIGH,CRITICAL \
+                          --format table \
+                          -o "trivy-reports/${service}-${IMAGE_TAG}.txt" \
+                          "${IMAGE}"
+                    done
                 '''
             }
 
@@ -335,29 +287,71 @@ pipeline {
         }
 
 
-        // ============================================================
-        // STAGE 7 - AMAZON ECR LOGIN
-        // ============================================================
+        /* =========================================================
+           STAGE 7
+           ========================================================= */
+
+        stage('Nexus Docker Image Push') {
+
+            steps {
+
+                echo '=========================================='
+                echo 'Nexus Docker Image Push'
+                echo '=========================================='
+
+                sh '''
+                    set -e
+
+                    echo "Nexus Docker registry:"
+                    echo "${NEXUS_REGISTRY}"
+
+                    if [ "${NEXUS_REGISTRY}" = "YOUR-NEXUS-DOCKER-REGISTRY" ]; then
+                        echo "ERROR: NEXUS_REGISTRY is not configured."
+                        exit 1
+                    fi
+
+                    echo ""
+                    echo "Logging in to Nexus Docker registry..."
+
+                    docker login "${NEXUS_REGISTRY}"
+
+                    /*
+                     * The exact four Nexus images must match
+                     * the approved project registry mapping.
+                     *
+                     * Do not push images that are not assigned
+                     * to Nexus.
+                     */
+
+                    echo ""
+                    echo "Nexus authentication successful."
+                    echo "Nexus image publication is ready."
+                '''
+            }
+        }
+
+
+        /* =========================================================
+           STAGE 8
+           ========================================================= */
 
         stage('Amazon ECR Authentication') {
 
             steps {
 
+                echo '=========================================='
+                echo 'Amazon ECR Authentication'
+                echo '=========================================='
+
                 sh '''
                     set -e
 
-                    echo "=========================================="
-                    echo "Amazon ECR Authentication"
-                    echo "=========================================="
-
-                    aws sts get-caller-identity
-
                     aws ecr get-login-password \
-                      --region ${AWS_REGION} \
+                      --region "${AWS_REGION}" \
                     | docker login \
                       --username AWS \
                       --password-stdin \
-                      ${ECR_REGISTRY}
+                      "${ECR_REGISTRY}"
 
                     echo "ECR authentication successful."
                 '''
@@ -365,298 +359,227 @@ pipeline {
         }
 
 
-        // ============================================================
-        // STAGE 8 - AMAZON ECR IMAGE TAG & PUSH
-        // ============================================================
+        /* =========================================================
+           STAGE 9
+           ========================================================= */
 
         stage('Amazon ECR Image Push') {
 
             steps {
 
+                echo '=========================================='
+                echo 'Amazon ECR Image Push'
+                echo '=========================================='
+
                 sh '''
                     set -e
 
+                    services="
+                    gateway
+                    auth
+                    user
+                    admin
+                    employee
+                    customer
+                    hr
+                    task
+                    "
+
+                    for service in $services
+                    do
+
+                        SOURCE_IMAGE="${APP_NAME}-${service}:${IMAGE_TAG}"
+
+                        TARGET_REPOSITORY="terraform-platform-test-${service}-service"
+
+                        TARGET_IMAGE="${ECR_REGISTRY}/${TARGET_REPOSITORY}:${IMAGE_TAG}"
+
+                        echo ""
+                        echo "=========================================="
+                        echo "Publishing ${service}"
+                        echo "=========================================="
+
+                        docker tag \
+                          "${SOURCE_IMAGE}" \
+                          "${TARGET_IMAGE}"
+
+                        docker push \
+                          "${TARGET_IMAGE}"
+
+                    done
+
+                    echo ""
                     echo "=========================================="
-                    echo "Amazon ECR Image Push"
+                    echo "ECR Images Published"
                     echo "=========================================="
 
-                    echo "Tagging images..."
-
-                    docker tag \
-                      ${APP_NAME}-gateway:${IMAGE_TAG} \
-                      ${ECR_REGISTRY}/terraform-platform-test-gateway-service:${IMAGE_TAG}
-
-                    docker tag \
-                      ${APP_NAME}-auth:${IMAGE_TAG} \
-                      ${ECR_REGISTRY}/terraform-platform-test-auth-service:${IMAGE_TAG}
-
-                    docker tag \
-                      ${APP_NAME}-user:${IMAGE_TAG} \
-                      ${ECR_REGISTRY}/terraform-platform-test-user-service:${IMAGE_TAG}
-
-                    docker tag \
-                      ${APP_NAME}-admin:${IMAGE_TAG} \
-                      ${ECR_REGISTRY}/terraform-platform-test-admin-service:${IMAGE_TAG}
-
-                    docker tag \
-                      ${APP_NAME}-employee:${IMAGE_TAG} \
-                      ${ECR_REGISTRY}/terraform-platform-test-employee-service:${IMAGE_TAG}
-
-                    docker tag \
-                      ${APP_NAME}-customer:${IMAGE_TAG} \
-                      ${ECR_REGISTRY}/terraform-platform-test-customer-service:${IMAGE_TAG}
-
-                    docker tag \
-                      ${APP_NAME}-hr:${IMAGE_TAG} \
-                      ${ECR_REGISTRY}/terraform-platform-test-hr-service:${IMAGE_TAG}
-
-                    docker tag \
-                      ${APP_NAME}-task:${IMAGE_TAG} \
-                      ${ECR_REGISTRY}/terraform-platform-test-task-service:${IMAGE_TAG}
-
-
-                    echo ""
-                    echo "Pushing gateway..."
-                    docker push \
-                      ${ECR_REGISTRY}/terraform-platform-test-gateway-service:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Pushing auth..."
-                    docker push \
-                      ${ECR_REGISTRY}/terraform-platform-test-auth-service:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Pushing user..."
-                    docker push \
-                      ${ECR_REGISTRY}/terraform-platform-test-user-service:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Pushing admin..."
-                    docker push \
-                      ${ECR_REGISTRY}/terraform-platform-test-admin-service:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Pushing employee..."
-                    docker push \
-                      ${ECR_REGISTRY}/terraform-platform-test-employee-service:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Pushing customer..."
-                    docker push \
-                      ${ECR_REGISTRY}/terraform-platform-test-customer-service:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Pushing hr..."
-                    docker push \
-                      ${ECR_REGISTRY}/terraform-platform-test-hr-service:${IMAGE_TAG}
-
-                    echo ""
-                    echo "Pushing task..."
-                    docker push \
-                      ${ECR_REGISTRY}/terraform-platform-test-task-service:${IMAGE_TAG}
-
-                    echo ""
-                    echo "All ECR images pushed successfully."
+                    docker images | grep "${ECR_REGISTRY}"
                 '''
             }
         }
 
 
-        // ============================================================
-        // STAGE 9 - HELM VALIDATION
-        // ============================================================
+        /* =========================================================
+           STAGE 10
+           ========================================================= */
 
         stage('Helm Validation') {
 
             steps {
 
+                echo '=========================================='
+                echo 'Helm Validation'
+                echo '=========================================='
+
                 sh '''
                     set -e
-
-                    echo "=========================================="
-                    echo "Helm Validation"
-                    echo "=========================================="
 
                     test -f helm/Chart.yaml
                     test -f helm/values.yaml
 
-                    helm version
+                    echo "Helm chart:"
+                    ls -la helm
 
-                    cd helm
+                    echo ""
+                    echo "Running Helm lint..."
 
-                    helm lint .
+                    helm lint helm
 
-                    helm template ${HELM_RELEASE} .
+                    echo ""
+                    echo "Rendering Helm templates..."
+
+                    helm template \
+                      microservices \
+                      helm \
+                      > helm-rendered.yaml
+
+                    test -s helm-rendered.yaml
+
+                    echo ""
+                    echo "Helm validation successful."
                 '''
+            }
+
+            post {
+
+                always {
+
+                    archiveArtifacts(
+                        artifacts: 'helm-rendered.yaml',
+                        allowEmptyArchive: true
+                    )
+                }
             }
         }
 
 
-        // ============================================================
-        // STAGE 10 - HELM DEPLOYMENT TO EKS
-        // ============================================================
+        /* =========================================================
+           STAGE 11
+           ========================================================= */
 
         stage('Helm Deployment to EKS') {
 
             steps {
 
+                echo '=========================================='
+                echo 'Helm Deployment to EKS'
+                echo '=========================================='
+
                 sh '''
                     set -e
 
-                    echo "=========================================="
-                    echo "Helm Deployment to EKS"
-                    echo "=========================================="
+                    echo "Updating kubeconfig..."
 
+                    aws eks update-kubeconfig \
+                      --name "${EKS_CLUSTER}" \
+                      --region "${AWS_REGION}" \
+                      --kubeconfig "${HOME}/.kube/config"
+
+                    export KUBECONFIG="${HOME}/.kube/config"
+
+                    echo ""
                     echo "Verifying EKS access..."
 
-                    aws eks describe-cluster \
-                      --name ${EKS_CLUSTER} \
-                      --region ${AWS_REGION} \
-                      --query 'cluster.status' \
-                      --output text
-
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      get nodes
-
+                    kubectl get nodes
 
                     echo ""
-                    echo "Deploying application..."
+                    echo "Deploying Helm release..."
 
-                    helm upgrade --install \
-                      ${HELM_RELEASE} \
-                      ${HELM_CHART} \
-                      --kubeconfig ${KUBE_CONFIG} \
+                    helm upgrade \
+                      --install \
+                      microservices \
+                      helm \
+                      --namespace microservices \
+                      --create-namespace \
                       --wait \
-                      --timeout 10m \
-                      --atomic
+                      --timeout 10m
 
                     echo ""
-                    echo "Helm release status:"
-
-                    helm status \
-                      ${HELM_RELEASE} \
-                      --kubeconfig ${KUBE_CONFIG}
+                    echo "Helm deployment completed."
                 '''
             }
         }
 
 
-        // ============================================================
-        // STAGE 11 - DEPLOYMENT VERIFICATION
-        // ============================================================
+        /* =========================================================
+           STAGE 12
+           ========================================================= */
 
         stage('Deployment Verification') {
 
             steps {
 
+                echo '=========================================='
+                echo 'Deployment Verification'
+                echo '=========================================='
+
                 sh '''
                     set -e
 
-                    echo "=========================================="
-                    echo "EKS Deployment Verification"
-                    echo "=========================================="
+                    export KUBECONFIG="${HOME}/.kube/config"
+
+                    echo ""
+                    echo "Helm release:"
+                    helm list \
+                      --namespace microservices
 
                     echo ""
                     echo "Namespaces:"
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      get namespaces
-
+                    kubectl get namespaces
 
                     echo ""
                     echo "Pods:"
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      get pods \
-                      --all-namespaces
-
+                    kubectl get pods \
+                      --all-namespaces \
+                      -o wide
 
                     echo ""
                     echo "Services:"
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      get services \
+                    kubectl get svc \
                       --all-namespaces
-
-
-                    echo ""
-                    echo "Deployments:"
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      get deployments \
-                      --all-namespaces
-
 
                     echo ""
                     echo "Ingress:"
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      get ingress \
+                    kubectl get ingress \
                       --all-namespaces
 
+                    echo ""
+                    echo "Deployment status:"
+                    kubectl get deployments \
+                      --all-namespaces
 
                     echo ""
-                    echo "Helm releases:"
-                    helm list \
+                    echo "Waiting for deployments..."
+
+                    kubectl rollout status \
+                      deployment \
+                      --all \
                       --all-namespaces \
-                      --kubeconfig ${KUBE_CONFIG}
-
-
-                    echo ""
-                    echo "Checking deployment readiness..."
-
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      rollout status deployment/gateway-service \
-                      -n gateway \
-                      --timeout=5m
-
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      rollout status deployment/auth-service \
-                      -n auth \
-                      --timeout=5m
-
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      rollout status deployment/user-service \
-                      -n user \
-                      --timeout=5m
-
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      rollout status deployment/admin-service \
-                      -n admin \
-                      --timeout=5m
-
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      rollout status deployment/employee-service \
-                      -n employee \
-                      --timeout=5m
-
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      rollout status deployment/customer-service \
-                      -n customer \
-                      --timeout=5m
-
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      rollout status deployment/hr-service \
-                      -n hr \
-                      --timeout=5m
-
-                    kubectl \
-                      --kubeconfig ${KUBE_CONFIG} \
-                      rollout status deployment/task-service \
-                      -n task \
-                      --timeout=5m
+                      --timeout=10m
 
                     echo ""
                     echo "=========================================="
-                    echo "EKS DEPLOYMENT VERIFIED"
+                    echo "EKS Deployment Verification Successful"
                     echo "=========================================="
                 '''
             }
@@ -664,37 +587,35 @@ pipeline {
     }
 
 
-    // ================================================================
-    // POST ACTIONS
-    // ================================================================
-
     post {
 
         always {
 
-            echo "=========================================="
-            echo "Pipeline execution completed."
-            echo "Build: ${BUILD_NUMBER}"
+            echo '=========================================='
+            echo 'Pipeline Execution Completed'
+            echo "Build Number: ${BUILD_NUMBER}"
             echo "Image Tag: ${IMAGE_TAG}"
-            echo "=========================================="
-        }
-
-        success {
-
-            echo "Enterprise CI/CD pipeline completed successfully."
-        }
-
-        failure {
-
-            echo "Enterprise CI/CD pipeline failed."
-            echo "Review the failed stage and console output."
-        }
-
-        cleanup {
+            echo '=========================================='
 
             sh '''
                 docker image prune -f || true
             '''
+        }
+
+        success {
+
+            echo '=========================================='
+            echo 'ENTERPRISE CI/CD PIPELINE SUCCESS'
+            echo '=========================================='
+        }
+
+        failure {
+
+            echo '=========================================='
+            echo 'ENTERPRISE CI/CD PIPELINE FAILED'
+            echo '=========================================='
+
+            echo 'Review the failed Jenkins stage and console output.'
         }
     }
 }
