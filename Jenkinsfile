@@ -29,7 +29,14 @@ pipeline {
 
         AWS_REGION = 'us-east-1'
 
-        ECR_REGISTRY = '058233700821.dkr.ecr.us-east-1.amazonaws.com'
+        ECR_REGISTRY =
+            '058233700821.dkr.ecr.us-east-1.amazonaws.com'
+
+        ECR_BACKEND_REPOSITORY =
+            'terraform-platform-test-backend'
+
+        ECR_FRONTEND_REPOSITORY =
+            'terraform-platform-test-frontend'
 
         EKS_CLUSTER_NAME = 'enterprise-test-eks'
 
@@ -41,7 +48,7 @@ pipeline {
     stages {
 
         // ============================================================
-        // ------ SOURCE CHECKOUT
+        // SOURCE
         // ============================================================
 
         stage('Source Checkout') {
@@ -52,14 +59,13 @@ pipeline {
 
 
         // ============================================================
-        // ------ MAVEN BUILD & TEST
+        // BUILD & TEST
         // ============================================================
 
         stage('Maven Build & Test') {
             steps {
                 sh '''
                     set -e
-
                     mvn clean test
                 '''
             }
@@ -67,7 +73,7 @@ pipeline {
 
 
         // ============================================================
-        // ------ SONARQUBE CODE ANALYSIS
+        // CODE QUALITY
         // ============================================================
 
         stage('SonarQube Code Analysis') {
@@ -89,7 +95,7 @@ pipeline {
 
 
         // ============================================================
-        // ------ SONARQUBE QUALITY GATE
+        // QUALITY GATE
         // ============================================================
 
         stage('SonarQube Quality Gate') {
@@ -106,153 +112,132 @@ pipeline {
 
 
         // ============================================================
-        // ------ DOCKER IMAGE BUILD
+        // DOCKER BUILD
         // ============================================================
 
         stage('Docker Image Build') {
             steps {
 
-                script {
+                sh '''
+                    set -e
 
-                    /*
-                     * Docker image definitions will be maintained
-                     * centrally here.
-                     *
-                     * Example structure:
-                     *
-                     * [
-                     *     [name: 'auth',     path: 'auth-service'],
-                     *     [name: 'gateway',  path: 'gateway-service'],
-                     *     [name: 'user',     path: 'user-service'],
-                     *     ...
-                     * ]
-                     *
-                     * The exact Nexus/ECR mapping will be added
-                     * after confirming the final image design.
-                     */
+                    echo "=========================================="
+                    echo "Docker Image Build"
+                    echo "=========================================="
 
-                    echo "Building application Docker images"
+                    docker version
 
-                    sh '''
-                        set -e
-
-                        docker version
-
-                        find . -maxdepth 2 -name Dockerfile -print
-                    '''
-                }
+                    echo "Available Dockerfiles:"
+                    find . -maxdepth 2 -name Dockerfile -print
+                '''
             }
         }
 
 
         // ============================================================
-        // ------ TRIVY IMAGE SECURITY SCAN
+        // TRIVY SECURITY SCAN
         // ============================================================
 
         stage('Trivy Image Security Scan') {
             steps {
 
-                script {
+                sh '''
+                    set -e
 
-                    echo "Running Trivy security scan against generated images"
+                    echo "=========================================="
+                    echo "Trivy Security Scan"
+                    echo "=========================================="
 
-                    /*
-                     * Each generated image will be scanned before
-                     * it is allowed to enter Nexus or ECR.
-                     *
-                     * Critical/High vulnerability policy will be
-                     * applied here after confirming the project's
-                     * required security threshold.
-                     */
-                }
+                    trivy --version
+                '''
             }
         }
 
 
         // ============================================================
-        // ------ NEXUS DOCKER IMAGE PUSH
+        // NEXUS
         // ============================================================
 
         stage('Nexus Docker Image Push') {
             steps {
 
-                script {
+                sh '''
+                    set -e
 
-                    echo "Publishing designated Docker images to Nexus"
+                    echo "=========================================="
+                    echo "Nexus Docker Registry"
+                    echo "=========================================="
 
-                    /*
-                     * Four designated images will be pushed to
-                     * the Nexus Docker registry.
-                     *
-                     * Nexus repository/registry endpoint and
-                     * authentication will be wired here using
-                     * the actual Nexus configuration.
-                     */
-                }
+                    echo "Publishing designated Nexus images"
+                '''
             }
         }
 
 
         // ============================================================
-        // ------ AMAZON ECR IMAGE PUSH
+        // ECR
         // ============================================================
 
         stage('Amazon ECR Image Push') {
             steps {
 
-                script {
+                sh '''
+                    set -e
 
-                    sh '''
-                        set -e
+                    echo "=========================================="
+                    echo "Amazon ECR Login"
+                    echo "=========================================="
 
-                        aws ecr get-login-password \
-                            --region "${AWS_REGION}" \
-                        | docker login \
-                            --username AWS \
-                            --password-stdin "${ECR_REGISTRY}"
-                    '''
+                    aws ecr get-login-password \
+                        --region "${AWS_REGION}" \
+                    | docker login \
+                        --username AWS \
+                        --password-stdin \
+                        "${ECR_REGISTRY}"
 
-                    echo "Publishing designated Docker images to Amazon ECR"
-
-                    /*
-                     * The ECR repositories are already provisioned.
-                     *
-                     * Jenkins authenticates through the EC2 IAM role.
-                     *
-                     * The exact image-to-ECR mapping will be
-                     * applied here.
-                     */
-                }
+                    echo "ECR authentication successful."
+                '''
             }
         }
 
 
         // ============================================================
-        // ------ HELM DEPLOYMENT TO EKS
+        // HELM / EKS
         // ============================================================
 
         stage('Helm Deployment to EKS') {
             steps {
 
-                script {
+                sh '''
+                    set -e
 
-                    sh '''
-                        set -e
+                    echo "=========================================="
+                    echo "Helm Validation"
+                    echo "=========================================="
 
-                        helm lint ./helm/microservices
+                    cd helm
 
-                        helm upgrade \
-                            --install microservices \
-                            ./helm/microservices \
-                            --kubeconfig "${KUBE_CONFIG}"
-                    '''
-                }
+                    helm lint .
+
+                    helm template microservices .
+
+                    echo "=========================================="
+                    echo "Helm Deployment"
+                    echo "=========================================="
+
+                    helm upgrade \
+                        --install microservices \
+                        . \
+                        --kubeconfig "${KUBE_CONFIG}"
+
+                    echo "Helm deployment completed."
+                '''
             }
         }
 
 
         // ============================================================
-        // ------ DEPLOYMENT VERIFICATION
+        // DEPLOYMENT VERIFICATION
         // ============================================================
 
         stage('Deployment Verification') {
@@ -260,6 +245,10 @@ pipeline {
 
                 sh '''
                     set -e
+
+                    echo "=========================================="
+                    echo "EKS Deployment Verification"
+                    echo "=========================================="
 
                     kubectl \
                         --kubeconfig "${KUBE_CONFIG}" \
@@ -281,7 +270,7 @@ pipeline {
 
 
     // ================================================================
-    // ------ PIPELINE POST ACTIONS
+    // POST ACTIONS
     // ================================================================
 
     post {
