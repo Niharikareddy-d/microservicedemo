@@ -5,7 +5,7 @@ metadata:
   name: microservices-config
   namespace: {{ $service.namespace }}
 data:
-  DB_HOST: "terraform-platform-test-terraform-platform-test-db.c9o0iwiqig5w.ap-south-1.rds.amazonaws.com"
+  DB_HOST: "terraform-platform-test-terraform-platform-test-db.ci78wsk2ilqr.us-east-1.rds.amazonaws.com"
   DB_PORT: "3306"
   DB_NAME: "tenantcrm"
 ---

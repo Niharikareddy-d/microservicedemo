@@ -1,0 +1,8 @@
+admin
+auth
+customer
+employee
+gateway
+hr
+task
+user

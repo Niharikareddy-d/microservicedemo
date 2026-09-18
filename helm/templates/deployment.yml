@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: {{ $service.name }}
-          image: 058233700821.dkr.ecr.ap-south-1.amazonaws.com/{{ $service.repository }}:{{ $service.tag }}
+          image: 058233700821.dkr.ecr.us-east-1.amazonaws.com/{{ $service.repository }}:{{ $service.tag }}
           imagePullPolicy: Always
           ports:
             - name: http
