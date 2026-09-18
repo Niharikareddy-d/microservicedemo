@@ -60,8 +60,19 @@ pipeline {
 
         stage('CI - Quality Gate') {
             steps {
-                timeout(time: 10, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
+                script {
+                    def changedServices = sh(
+                        script: 'cat ci/changed-services.txt 2>/dev/null || true',
+                        returnStdout: true
+                    ).trim()
+
+                    if (changedServices) {
+                        timeout(time: 10, unit: 'MINUTES') {
+                            waitForQualityGate abortPipeline: true
+                        }
+                    } else {
+                        echo 'No changed services. Skipping SonarQube Quality Gate.'
+                    }
                 }
             }
         }
@@ -80,7 +91,15 @@ pipeline {
 
         stage('CD - Nexus') {
             steps {
-                sh './cd/nexus.sh'
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-docker',
+                        usernameVariable: 'NEXUS_USERNAME',
+                        passwordVariable: 'NEXUS_PASSWORD'
+                    )
+                ]) {
+                    sh './cd/nexus.sh'
+                }
             }
         }
 
